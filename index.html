@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Projeto em 3D</title>
+<!--
+  Visualizador do "QR do projeto" do Ardus (27/09/2026).
+  O Ardus publica um modelo 3D (GLB) no Supabase e gera um QR para esta página
+  com ?v=<id>. A página pergunta ao servidor (`vista_publica`, SQL v10) o nome
+  do projeto, a empresa e o arquivo — só enquanto o link vale (30 dias).
+  ⚠️ A chave abaixo é a PUBLICÁVEL (feita para ficar pública). Nada de chave
+     de serviço aqui. Gerado por scripts/gerar-visualizador.mjs.
+-->
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
+<style>
+  :root { --fundo: #f4f6f5; --texto: #1d2a28; --suave: #5d6b68; --marca: #0f5c55; --borda: #dde3e1; }
+  @media (prefers-color-scheme: dark) { :root { --fundo: #121816; --texto: #e7eeec; --suave: #9fb0ac; --marca: #3fb3a6; --borda: #25302d; } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--fundo); color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; min-height: 100dvh; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--borda); }
+  header img { height: 36px; max-width: 120px; object-fit: contain; display: none; }
+  header .titulos { min-width: 0; }
+  header .empresa { font-size: 12px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header h1 { font-size: 17px; margin: 2px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  main { flex: 1; position: relative; min-height: 0; }
+  model-viewer { width: 100%; height: 100%; min-height: 60dvh; background: var(--fundo); --poster-color: transparent; }
+  .ar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); border: 0; border-radius: 999px;
+    background: var(--marca); color: #fff; font: inherit; font-weight: 600; padding: 12px 20px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+  .dica { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--suave);
+    background: color-mix(in srgb, var(--fundo) 85%, transparent); padding: 4px 10px; border-radius: 999px; pointer-events: none; }
+  .aviso { max-width: 420px; margin: 18vh auto 0; padding: 0 20px; text-align: center; }
+  .aviso h2 { font-size: 18px; margin: 0 0 8px; }
+  .aviso p { color: var(--suave); line-height: 1.5; margin: 0; }
+  .progresso { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--suave); font-size: 14px; }
+  footer { padding: 8px 16px 12px; font-size: 11px; color: var(--suave); text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <img id="logo" alt="">
+  <div class="titulos">
+    <div class="empresa" id="empresa"></div>
+    <h1 id="projeto">Carregando…</h1>
+  </div>
+</header>
+<main id="palco"><div class="progresso" id="progresso">Carregando o projeto…</div></main>
+<footer id="rodape"></footer>
+<script type="module">
+  const SUPABASE_URL = 'https://uqakyepxfptojkscdesw.supabase.co'
+  const CHAVE_PUBLICAVEL = 'sb_publishable_DnY55ncsxYCOqTEyeVV1UQ_plEGPPpf'
+  const $ = (id) => document.getElementById(id)
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  function aviso(titulo, texto) {
+    $('projeto').textContent = titulo
+    const box = document.createElement('div')
+    box.className = 'aviso'
+    const h = document.createElement('h2'); h.textContent = titulo
+    const p = document.createElement('p'); p.textContent = texto
+    box.append(h, p)
+    $('palco').replaceChildren(box)
+  }
+
+  async function iniciar() {
+    const id = new URLSearchParams(location.search).get('v') || ''
+    if (!UUID.test(id)) return aviso('Link incompleto', 'Abra o link ou o QR que você recebeu, sem cortar o final do endereço.')
+    let vista = null
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/vista_publica`, {
+        method: 'POST',
+        headers: { apikey: CHAVE_PUBLICAVEL, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_id: id }),
+      })
+      if (!r.ok) throw new Error(String(r.status))
+      vista = await r.json()
+    } catch {
+      return aviso('Sem conexão', 'Não foi possível carregar o projeto agora. Confira a internet e tente de novo.')
+    }
+    if (!vista || !vista.arquivo) {
+      return aviso('Este link não está mais disponível', 'Ele venceu ou foi desativado. Peça um link novo a quem enviou o projeto.')
+    }
+
+    // Tudo por textContent / atributo: nada vindo do servidor vira HTML.
+    document.title = `${vista.nome} — Projeto em 3D`
+    $('projeto').textContent = vista.nome
+    $('empresa').textContent = vista.empresa || ''
+    if (typeof vista.logo === 'string' && vista.logo.startsWith('data:image/')) {
+      $('logo').src = vista.logo
+      $('logo').style.display = 'block'
+    }
+    const fim = new Date(vista.expira_em)
+    if (!isNaN(fim)) $('rodape').textContent = `Link válido até ${fim.toLocaleDateString('pt-BR')}`
+
+    const mv = document.createElement('model-viewer')
+    mv.setAttribute('src', `${SUPABASE_URL}/storage/v1/object/public/vistas/${vista.arquivo}`)
+    mv.setAttribute('alt', `Projeto ${vista.nome} em 3D`)
+    mv.setAttribute('camera-controls', '')
+    mv.setAttribute('touch-action', 'pan-y')
+    mv.setAttribute('shadow-intensity', '1')
+    mv.setAttribute('environment-image', 'neutral')
+    mv.setAttribute('ar', '')
+    mv.setAttribute('ar-modes', 'webxr scene-viewer quick-look')
+    mv.setAttribute('ar-scale', 'fixed')
+    // Começa ALTO (40°), olhando para dentro do ambiente por cima das paredes —
+    // de lado (70°) as paredes escondiam os móveis. 95% = um pouco mais perto
+    // que o enquadramento automático, sem cortar as laterais.
+    mv.setAttribute('camera-orbit', '25deg 40deg 95%')
+    const botaoAr = document.createElement('button')
+    botaoAr.slot = 'ar-button'
+    botaoAr.className = 'ar'
+    botaoAr.textContent = 'Ver no seu ambiente'
+    const dica = document.createElement('div')
+    dica.className = 'dica'
+    dica.textContent = 'Arraste para girar · pince para aproximar'
+    mv.append(botaoAr)
+    mv.addEventListener('progress', (e) => {
+      const p = Math.round((e.detail?.totalProgress || 0) * 100)
+      $('progresso') && ($('progresso').textContent = p < 100 ? `Carregando o projeto… ${p}%` : '')
+    })
+    mv.addEventListener('load', () => { $('progresso')?.remove() })
+    mv.addEventListener('error', () => aviso('Não foi possível abrir o 3D', 'O arquivo do projeto não carregou. Peça a quem enviou para gerar o link de novo.'))
+    $('palco').append(mv, dica)
+  }
+  iniciar()
+</script>
+</body>
+</html>
