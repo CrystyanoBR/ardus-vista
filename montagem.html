@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0f5c55">
+<title>3D da obra</title>
+<!--
+  Página do MONTADOR do Ardus (17/10/2026). O Ardus publica, junto com as
+  etiquetas, o 3D da obra (GLB) com o pacote da montagem nos extras: módulos,
+  ordem de instalação, etapas e as peças com o código impresso na etiqueta.
+  A página pergunta `montagem_publica(id)` (SQL v19) e abre o modelo. O
+  montador lê o QR da etiqueta e vê onde a peça vai.
+  ⚠️ A chave abaixo é a PUBLICÁVEL. Gerado por scripts/gerar-visualizador.mjs.
+  ⚠️ Nada vindo do servidor vira HTML: tudo por textContent.
+-->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/"
+} }
+</script>
+<style>
+  :root { --fundo: #f4f6f5; --painel: #ffffff; --texto: #1d2a28; --suave: #4f5d5a; --marca: #0f5c55; --borda: #d6dedb;
+          --destaque: #e8740c; --etapa: #0f766e; --sombra: 0 -6px 24px rgba(0,0,0,.12); }
+  @media (prefers-color-scheme: dark) { :root { --fundo: #121816; --painel: #1a2220; --texto: #e7eeec; --suave: #a9b8b4; --marca: #3fb3a6; --borda: #2a3532; --sombra: 0 -6px 24px rgba(0,0,0,.5); } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--fundo); color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+  body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--borda); background: var(--painel); flex: none; }
+  header img { height: 30px; max-width: 96px; object-fit: contain; display: none; }
+  header .titulos { min-width: 0; flex: 1; }
+  header .empresa { font-size: 12px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header h1 { font-size: 16px; margin: 1px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  main { flex: 1; position: relative; min-height: 0; }
+  canvas#palco3d { width: 100%; height: 100%; display: block; touch-action: none; }
+  .barra { display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--painel); border-top: 1px solid var(--borda); flex: none; }
+  .barra button { flex: 1; min-height: 46px; border-radius: 12px; border: 1px solid var(--borda); background: var(--painel); color: var(--texto); font: inherit; font-size: 14px; font-weight: 600; }
+  .barra button.principal { background: var(--marca); border-color: var(--marca); color: #fff; flex: 1.4; }
+  .cartao { position: absolute; left: 0; right: 0; bottom: 0; max-height: 58%; overflow: auto; background: var(--painel); border-top-left-radius: 16px; border-top-right-radius: 16px;
+    box-shadow: var(--sombra); padding: 14px 16px 16px; display: none; overflow-x: hidden; }
+  .cartao.aberto { display: block; }
+  .cartao .fechar { position: sticky; top: 0; float: right; border: 0; background: transparent; color: var(--suave); font-size: 22px; line-height: 1; padding: 0 0 6px 10px; }
+  .cartao h2 { font-size: 17px; margin: 0 0 4px; overflow-wrap: anywhere; }
+  .cartao .sub { font-size: 13px; color: var(--suave); margin: 0 0 8px; line-height: 1.4; }
+  .pilha { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .pilha button { border: 1px solid var(--borda); background: var(--fundo); color: var(--texto); border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 13px; min-height: 38px; }
+  .pilha button.ativo { background: var(--etapa); border-color: var(--etapa); color: #fff; font-weight: 600; }
+  .linha { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--borda); font-size: 14px; width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; color: inherit; text-align: left; font-family: inherit; }
+  .linha:last-child { border-bottom: 0; }
+  .linha .n { min-width: 44px; height: 30px; border-radius: 8px; background: var(--marca); color: #fff; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; flex: none; padding: 0 6px; }
+  .linha .t { flex: 1; min-width: 0; }
+  .linha .t b { display: block; font-size: 14px; }
+  .linha .t span { display: block; font-size: 12px; color: var(--suave); overflow-wrap: anywhere; }
+  .peca-destaque { border-left: 4px solid var(--destaque); padding-left: 10px; margin: 6px 0 10px; }
+  .peca-destaque .cod { font-size: 12px; color: var(--suave); letter-spacing: .04em; }
+  .grade { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; font-size: 14px; margin: 6px 0 10px; }
+  .grade dt { color: var(--suave); } .grade dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .acao { border: 1px solid var(--marca); color: var(--marca); background: transparent; border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600; font-size: 14px; min-height: 44px; }
+  .aviso-peq { font-size: 12.5px; color: var(--suave); background: var(--fundo); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+  .busca { display: flex; gap: 8px; margin: 6px 0 10px; }
+  .busca input { flex: 1; min-height: 44px; border: 1px solid var(--borda); border-radius: 10px; padding: 0 12px; font: inherit; font-size: 16px; background: var(--fundo); color: var(--texto); }
+  .camera { position: fixed; inset: 0; background: #000; display: none; flex-direction: column; z-index: 10; }
+  .camera.aberto { display: flex; }
+  .camera video { flex: 1; width: 100%; object-fit: cover; min-height: 0; }
+  .camera .mira { position: absolute; left: 50%; top: 42%; width: 64vw; max-width: 300px; aspect-ratio: 1; transform: translate(-50%, -50%); border: 3px solid rgba(255,255,255,.85); border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.35); pointer-events: none; }
+  .camera .rodape { padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); color: #fff; text-align: center; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .camera .rodape button { min-height: 46px; border-radius: 12px; border: 0; font: inherit; font-weight: 600; font-size: 15px; }
+  .aviso { max-width: 420px; margin: 16vh auto 0; padding: 0 20px; text-align: center; }
+  .aviso h2 { font-size: 18px; margin: 0 0 8px; } .aviso p { color: var(--suave); line-height: 1.5; margin: 0; }
+  .progresso { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); color: var(--suave); font-size: 14px; text-align: center; }
+  .dica { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--suave); background: color-mix(in srgb, var(--painel) 88%, transparent);
+    padding: 5px 12px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
+  :focus-visible { outline: 3px solid var(--destaque); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <img id="logo" alt="">
+  <div class="titulos">
+    <div class="empresa" id="empresa"></div>
+    <h1 id="projeto">Carregando…</h1>
+  </div>
+</header>
+<main id="palco">
+  <canvas id="palco3d" aria-label="Projeto em 3D"></canvas>
+  <div class="progresso" id="progresso">Carregando a obra…</div>
+  <div class="dica" id="dica" hidden>Toque num móvel · arraste para girar · pince para aproximar</div>
+  <section class="cartao" id="cartao" aria-live="polite"></section>
+</main>
+<nav class="barra" id="barra" hidden>
+  <button type="button" class="principal" id="b-ler">Ler etiqueta</button>
+  <button type="button" id="b-modulos">Módulos</button>
+  <button type="button" id="b-buscar">Buscar</button>
+  <button type="button" id="b-tudo">Tudo</button>
+</nav>
+<div class="camera" id="camera" role="dialog" aria-label="Ler o QR da etiqueta">
+  <video id="video" playsinline muted></video>
+  <div class="mira"></div>
+  <div class="rodape">
+    <div id="camera-texto">Aponte para o QR da etiqueta da peça</div>
+    <button type="button" id="b-fechar-camera">Fechar</button>
+  </div>
+</div>
+<script type="module">
+  import * as THREE from 'three'
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+  const SUPABASE_URL = 'https://uqakyepxfptojkscdesw.supabase.co'
+  const CHAVE_PUBLICAVEL = 'sb_publishable_DnY55ncsxYCOqTEyeVV1UQ_plEGPPpf'
+  const $ = (id) => document.getElementById(id)
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  // O mesmo padrão do código PROG da conferência de expedição (ConferenciaDeExpedicao.lerCodigo).
+  const lerCodigo = (t) => { const m = String(t || '').toUpperCase().replace(/\s+/g, '').match(/[A-Z]{2,4}\d{4,6}[A-Z]{1,3}/); return m ? m[0] : '' }
+  const NIVEL = { piso: 'No piso', pendurado: 'Pendurado', apoiado: 'Sobre outro módulo' }
+
+  /** Cria elemento sem HTML: tudo por textContent. */
+  function el(tag, props = {}, filhos = []) {
+    const e = document.createElement(tag)
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'texto') e.textContent = v
+      else if (k === 'classe') e.className = v
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v)
+      else e.setAttribute(k, v)
+    }
+    for (const f of [].concat(filhos)) if (f) e.append(f)
+    return e
+  }
+
+  function aviso(titulo, texto) {
+    $('projeto').textContent = titulo
+    $('progresso')?.remove()
+    $('palco').replaceChildren(el('div', { classe: 'aviso' }, [el('h2', { texto: titulo }), el('p', { texto })]))
+  }
+
+  // ─── 3D (redesenha só quando algo muda: nada de animação contínua) ───
+  const canvas = $('palco3d')
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  const cena = new THREE.Scene()
+  const escuro = matchMedia('(prefers-color-scheme: dark)').matches
+  cena.background = new THREE.Color(escuro ? 0x121816 : 0xf4f6f5)
+  cena.add(new THREE.HemisphereLight(0xffffff, 0x8a8f8c, 2.2))
+  const sol = new THREE.DirectionalLight(0xffffff, 1.6); sol.position.set(3, 6, 4); cena.add(sol)
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 200)
+  const controles = new OrbitControls(camera, canvas)
+  controles.enableDamping = false
+  let pedido = false
+  const desenhar = () => { if (pedido) return; pedido = true; requestAnimationFrame(() => { pedido = false; renderer.render(cena, camera) }) }
+  controles.addEventListener('change', desenhar)
+  function ajustar() {
+    const r = canvas.getBoundingClientRect()
+    renderer.setSize(r.width, r.height, false)
+    camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); desenhar()
+  }
+  addEventListener('resize', ajustar)
+
+  let D = null, raiz = null
+  const porNome = new Map()
+  const original = new Map()
+  const fantasma = new THREE.MeshBasicMaterial({ color: escuro ? 0x7c8a87 : 0x9aa6a3, transparent: true, opacity: 0.10, depthWrite: false })
+  const destaque = new THREE.MeshStandardMaterial({ color: 0xe8740c, emissive: 0x7a3300, roughness: 0.55 })
+  const montada = new THREE.MeshStandardMaterial({ color: 0xc4c9c7, roughness: 0.8 })
+
+  function todasAsMalhas(o, f) { o.traverse((m) => { if (m.isMesh) f(m) }) }
+  function restaurar() { for (const [m, mat] of original) { m.material = mat; m.visible = true } }
+  function moduloDe(obj) { let o = obj; while (o && !/^mod_\d+$/.test(o.name || '')) o = o.parent; return o }
+
+  function enquadrar(objs) {
+    const caixa = new THREE.Box3()
+    for (const o of objs) if (o) caixa.expandByObject(o)
+    if (caixa.isEmpty()) return
+    const c = caixa.getCenter(new THREE.Vector3()), s = caixa.getSize(new THREE.Vector3())
+    const raio = Math.max(s.x, s.y, s.z) * 0.75 + 0.15
+    const dist = raio / Math.tan((camera.fov * Math.PI / 180) / 2)
+    const dir = camera.position.clone().sub(controles.target).normalize()
+    if (!Number.isFinite(dir.x) || dir.lengthSq() < 0.5) dir.set(0.6, 0.55, 0.6).normalize()
+    controles.target.copy(c)
+    camera.position.copy(c).add(dir.multiplyScalar(dist))
+    camera.near = Math.max(0.005, dist / 200); camera.far = dist * 50; camera.updateProjectionMatrix()
+    controles.update(); desenhar()
+  }
+
+  // Modos: tudo · módulo (outros fantasmas) · etapa · peça.
+  function verTudo() { restaurar(); fecharCartao(); enquadrar([raiz]); }
+  function isolar(modObj) {
+    restaurar()
+    todasAsMalhas(raiz, (m) => { if (!modObj || moduloDe(m) !== modObj) m.material = fantasma })
+    return modObj
+  }
+  function mostrarEtapa(mod, n) {
+    const o = porNome.get(mod.no); isolar(o)
+    for (const [e, lista] of Object.entries(mod.etapas || {})) {
+      for (const nome of lista) {
+        const m = porNome.get(nome); if (!m) continue
+        if (Number(e) < n) m.material = montada
+        else if (Number(e) > n) m.visible = false
+      }
+    }
+    desenhar()
+  }
+  function destacarPeca(mod, peca) {
+    const o = porNome.get(mod.no)
+    isolar(o)
+    // Módulo da peça meio apagado; a peça em laranja.
+    todasAsMalhas(o, (m) => { m.material = fantasma })
+    const alvos = (peca.nos || []).map((n) => porNome.get(n)).filter(Boolean)
+    if (alvos.length) { for (const m of alvos) m.material = destaque; enquadrar([o]) }
+    else {
+      // Sem casamento pela medida: a etapa da peça no módulo.
+      for (const n of mod.etapas?.[peca.e] || []) { const m = porNome.get(n); if (m) m.material = destaque }
+      enquadrar([o])
+    }
+    desenhar()
+    return alvos.length > 0
+  }
+
+  // ─── cartão ───
+  const cartao = $('cartao')
+  // Com o cartão aberto, o desenho sobe: o móvel fica na metade de cima da tela.
+  function folga(aberto) {
+    const r = canvas.getBoundingClientRect()
+    if (aberto) camera.setViewOffset(r.width, r.height, 0, r.height * 0.24, r.width, r.height)
+    else camera.clearViewOffset()
+    camera.updateProjectionMatrix(); desenhar()
+  }
+  function abrirCartao(filhos) {
+    cartao.replaceChildren(el('button', { classe: 'fechar', type: 'button', 'aria-label': 'Fechar', texto: '×', onclick: fecharCartao }), ...filhos)
+    cartao.classList.add('aberto'); cartao.scrollTop = 0
+    folga(true)
+  }
+  function fecharCartao() { cartao.classList.remove('aberto'); folga(false) }
+  const nomeEtapa = (n) => D?.etapas?.find((e) => e.n === Number(n))?.nome || 'Complementos'
+  const rotMod = (m) => (m.n != null ? `M${m.n}` : 'M?')
+  const medida = (p) => (p.med || []).map((v) => String(Math.round(v * 10) / 10).replace('.', ',')).join(' × ')
+
+  function cartaoDoModulo(mod, etapa = null) {
+    const o = porNome.get(mod.no)
+    if (etapa == null) { isolar(o); desenhar() } else mostrarEtapa(mod, etapa)
+    enquadrar([o])
+    const etapas = Object.keys(mod.etapas || {}).map(Number).sort((a, b) => a - b)
+    const pilha = el('div', { classe: 'pilha', role: 'group', 'aria-label': 'Passo a passo' }, [
+      el('button', { type: 'button', classe: etapa == null ? 'ativo' : '', texto: 'Inteiro', onclick: () => cartaoDoModulo(mod, null) }),
+      ...etapas.map((e, i) => el('button', { type: 'button', classe: etapa === e ? 'ativo' : '', texto: `${i + 1}. ${nomeEtapa(e)}`, onclick: () => cartaoDoModulo(mod, e) })),
+    ])
+    const pecas = (mod.pecas || []).filter((p) => etapa == null || p.e === etapa)
+    const lista = pecas.length
+      ? pecas.map((p) => el('button', { classe: 'linha', type: 'button', onclick: () => cartaoDaPeca(mod, p) }, [
+          el('span', { classe: 'n', texto: `${p.q}×` }),
+          el('span', { classe: 't' }, [el('b', { texto: p.nome }), el('span', { texto: [medida(p), p.mat, p.c].filter(Boolean).join(' · ') })]),
+        ]))
+      : [el('div', { classe: 'aviso-peq', texto: (mod.pecas || []).length ? 'Nenhuma peça desta etapa tem etiqueta.' : 'As peças deste módulo ainda não têm etiqueta.' })]
+    const sub = [mod.ordem != null ? `${mod.ordem}º a instalar` : null, NIVEL[mod.nivel] || null].filter(Boolean).join(' · ')
+    abrirCartao([
+      el('h2', { texto: `${rotMod(mod)} · ${mod.nome}` }),
+      sub ? el('p', { classe: 'sub', texto: sub }) : null,
+      mod.encosto && mod.encosto !== '—' ? el('p', { classe: 'sub', texto: `Encosta em: ${mod.encosto}` }) : null,
+      mod.motivo ? el('p', { classe: 'sub', texto: mod.motivo }) : null,
+      pilha, ...lista,
+    ])
+  }
+
+  function cartaoDaPeca(mod, peca, outras = []) {
+    const achou = destacarPeca(mod, peca)
+    abrirCartao([
+      el('div', { classe: 'peca-destaque' }, [el('div', { classe: 'cod', texto: `Peça ${peca.c}` }), el('h2', { texto: peca.nome })]),
+      el('dl', { classe: 'grade' }, [
+        el('dt', { texto: 'Módulo' }), el('dd', { texto: `${rotMod(mod)} · ${mod.nome}` }),
+        el('dt', { texto: 'Medida' }), el('dd', { texto: `${medida(peca)} mm` }),
+        peca.mat ? el('dt', { texto: 'Material' }) : null, peca.mat ? el('dd', { texto: peca.mat }) : null,
+        el('dt', { texto: 'Quantidade' }), el('dd', { texto: `${peca.q} neste módulo` }),
+        el('dt', { texto: 'Etapa' }), el('dd', { texto: nomeEtapa(peca.e) }),
+        mod.ordem != null ? el('dt', { texto: 'Instalação' }) : null, mod.ordem != null ? el('dd', { texto: `${mod.ordem}º módulo` }) : null,
+      ]),
+      achou ? null : el('div', { classe: 'aviso-peq', texto: 'A peça não foi achada sozinha no 3D: em laranja, a etapa dela neste módulo.' }),
+      outras.length ? el('div', { classe: 'aviso-peq', texto: `Esta peça também vai em: ${outras.map((o) => rotMod(o.modulo)).join(', ')}.` }) : null,
+      ...outras.map((o) => el('button', { classe: 'linha', type: 'button', onclick: () => cartaoDaPeca(o.modulo, o.peca, []) }, [
+        el('span', { classe: 'n', texto: rotMod(o.modulo) }), el('span', { classe: 't' }, [el('b', { texto: o.modulo.nome }), el('span', { texto: `${o.peca.q}× nesta` })]),
+      ])),
+      el('div', { classe: 'pilha' }, [el('button', { type: 'button', texto: 'Ver o módulo inteiro', onclick: () => cartaoDoModulo(mod) })]),
+    ])
+  }
+
+  function acharPorCodigo(texto) {
+    const c = lerCodigo(texto)
+    if (!c) return null
+    const oc = []
+    for (const m of D.modulos) { const p = (m.pecas || []).find((x) => x.c === c); if (p) oc.push({ modulo: m, peca: p }) }
+    return { c, oc }
+  }
+  function abrirCodigo(texto) {
+    const r = acharPorCodigo(texto)
+    if (!r) { abrirCartao([el('h2', { texto: 'Não é um código de peça' }), el('p', { classe: 'sub', texto: 'Leia o QR da etiqueta colada na peça.' })]); return }
+    if (!r.oc.length) { abrirCartao([el('h2', { texto: `Peça ${r.c}` }), el('p', { classe: 'sub', texto: 'Esta peça não está neste projeto — confira se a etiqueta é desta obra.' })]); return }
+    const [prim, ...resto] = r.oc
+    cartaoDaPeca(prim.modulo, prim.peca, resto)
+  }
+
+  function listaDeModulos() {
+    restaurar(); enquadrar([raiz])
+    abrirCartao([
+      el('h2', { texto: 'Ordem de instalação' }),
+      el('p', { classe: 'sub', texto: 'Primeiro o piso, depois os aéreos, por último o que vai apoiado. Toque num módulo.' }),
+      ...D.modulos.map((m) => el('button', { classe: 'linha', type: 'button', onclick: () => cartaoDoModulo(m) }, [
+        el('span', { classe: 'n', texto: m.ordem != null ? `${m.ordem}º` : '—' }),
+        el('span', { classe: 't' }, [el('b', { texto: `${rotMod(m)} · ${m.nome}` }), el('span', { texto: [NIVEL[m.nivel], `${(m.pecas || []).length} peça(s) com etiqueta`].filter(Boolean).join(' · ') })]),
+      ])),
+    ])
+  }
+
+  function buscar() {
+    const campo = el('input', { type: 'text', inputmode: 'text', autocapitalize: 'characters', placeholder: 'Código da etiqueta ou nome da peça', 'aria-label': 'Buscar peça' })
+    const saida = el('div')
+    const procurar = () => {
+      const t = campo.value.trim()
+      if (!t) return
+      const r = acharPorCodigo(t)
+      if (r && r.oc.length) { abrirCodigo(t); return }
+      const alvo = t.toLowerCase()
+      const achados = []
+      for (const m of D.modulos) for (const p of m.pecas || []) if (p.nome.toLowerCase().includes(alvo)) achados.push({ m, p })
+      saida.replaceChildren(...(achados.length ? achados.slice(0, 40).map(({ m, p }) => el('button', { classe: 'linha', type: 'button', onclick: () => cartaoDaPeca(m, p) }, [
+        el('span', { classe: 'n', texto: rotMod(m) }), el('span', { classe: 't' }, [el('b', { texto: p.nome }), el('span', { texto: [medida(p), p.c].join(' · ') })]),
+      ])) : [el('div', { classe: 'aviso-peq', texto: 'Nada encontrado.' })]))
+    }
+    abrirCartao([el('h2', { texto: 'Buscar peça' }), el('div', { classe: 'busca' }, [campo, el('button', { classe: 'acao', type: 'button', texto: 'Buscar', onclick: procurar })]), saida])
+    campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') procurar() })
+    setTimeout(() => campo.focus(), 50)
+  }
+
+  // ─── leitura do QR da etiqueta (câmera só enquanto a janela está aberta) ───
+  let fluxo = null, lendo = false, detector = null
+  async function carregarJsQR() {
+    if (window.jsQR) return window.jsQR
+    await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js'; s.onload = ok; s.onerror = erro; document.head.append(s) })
+    return window.jsQR
+  }
+  async function abrirCamera() {
+    $('camera').classList.add('aberto')
+    $('camera-texto').textContent = 'Aponte para o QR da etiqueta da peça'
+    try {
+      fluxo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+    } catch {
+      $('camera-texto').textContent = 'Sem acesso à câmera. Libere a câmera para esta página ou use "Buscar" e digite o código da etiqueta.'
+      return
+    }
+    const video = $('video'); video.srcObject = fluxo; await video.play().catch(() => {})
+    if ('BarcodeDetector' in window) { try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }) } catch { detector = null } }
+    const jsqr = detector ? null : await carregarJsQR().catch(() => null)
+    const tela = document.createElement('canvas'), ctx = tela.getContext('2d', { willReadFrequently: true })
+    lendo = true
+    const passo = async () => {
+      if (!lendo) return
+      let texto = null
+      try {
+        if (detector) { const r = await detector.detect(video); texto = r?.[0]?.rawValue || null }
+        else if (jsqr && video.videoWidth) {
+          const w = Math.min(640, video.videoWidth), h = Math.round(w * video.videoHeight / video.videoWidth)
+          tela.width = w; tela.height = h; ctx.drawImage(video, 0, 0, w, h)
+          texto = jsqr(ctx.getImageData(0, 0, w, h).data, w, h)?.data || null
+        }
+      } catch { texto = null }
+      if (texto && lerCodigo(texto)) { fecharCamera(); navigator.vibrate?.(60); abrirCodigo(texto); return }
+      setTimeout(passo, 180)
+    }
+    passo()
+  }
+  function fecharCamera() {
+    lendo = false
+    fluxo?.getTracks().forEach((t) => t.stop()); fluxo = null
+    $('camera').classList.remove('aberto')
+  }
+  $('b-fechar-camera').addEventListener('click', fecharCamera)
+
+  // ─── toque no 3D: abre o módulo ───
+  const raio = new THREE.Raycaster(), ponto = new THREE.Vector2()
+  let inicio = null
+  canvas.addEventListener('pointerdown', (e) => { inicio = { x: e.clientX, y: e.clientY } })
+  canvas.addEventListener('pointerup', (e) => {
+    if (!inicio || Math.hypot(e.clientX - inicio.x, e.clientY - inicio.y) > 8 || !D) return
+    const r = canvas.getBoundingClientRect()
+    ponto.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
+    raio.setFromCamera(ponto, camera)
+    const hit = raio.intersectObject(raiz, true).find((h) => h.object.visible && moduloDe(h.object))
+    const modObj = hit && moduloDe(hit.object)
+    const mod = modObj && D.modulos.find((m) => m.no === modObj.name)
+    if (mod) cartaoDoModulo(mod)
+  })
+
+  /** Abre o pacote (o teste no Ardus chama direto, sem servidor). */
+  window.abrirObra = async function abrirObra(buffer, meta = {}) {
+    const gltf = await new GLTFLoader().parseAsync(buffer, '')
+    raiz = gltf.scene
+    raiz.traverse((o) => { if (o.userData?.montagem && !D) D = o.userData.montagem; if (o.name) porNome.set(o.name, o) })
+    if (!D) throw new Error('O arquivo não tem os dados da montagem.')
+    todasAsMalhas(raiz, (m) => original.set(m, m.material))
+    cena.add(raiz)
+    $('projeto').textContent = meta.nome || D.projeto
+    document.title = `${meta.nome || D.projeto} — 3D da obra`
+    $('empresa').textContent = [meta.empresa || D.empresa, D.pedido ? `Pedido ${D.pedido}` : null].filter(Boolean).join(' · ')
+    $('progresso')?.remove()
+    $('barra').hidden = false; $('dica').hidden = false
+    setTimeout(() => { const d = $('dica'); if (d) d.hidden = true }, 5000)
+    ajustar(); enquadrar([raiz])
+    $('b-ler').onclick = abrirCamera
+    $('b-modulos').onclick = listaDeModulos
+    $('b-buscar').onclick = buscar
+    $('b-tudo').onclick = verTudo
+    return { modulos: D.modulos.length, pecas: D.resumo?.pecas || 0 }
+  }
+  window.__obra = { abrirCodigo, cartaoDoModulo: (i) => cartaoDoModulo(D.modulos[i]), dados: () => D }
+
+  async function iniciar() {
+    ajustar()
+    const id = new URLSearchParams(location.search).get('m') || ''
+    if (!id && window.__semServidor) return
+    if (!UUID.test(id)) return aviso('Link incompleto', 'Abra o link ou o QR que você recebeu, sem cortar o final do endereço.')
+    let info = null
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/montagem_publica`, {
+        method: 'POST', headers: { apikey: CHAVE_PUBLICAVEL, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_id: id }),
+      })
+      if (!r.ok) throw new Error(String(r.status))
+      info = await r.json()
+    } catch { return aviso('Sem conexão', 'Não foi possível carregar a obra agora. Confira a internet e tente de novo.') }
+    if (!info || !info.arquivo) return aviso('Este link não está mais disponível', 'Ele venceu ou foi desligado. Peça um link novo a quem enviou o projeto.')
+    if (typeof info.logo === 'string' && info.logo.startsWith('data:image/')) { $('logo').src = info.logo; $('logo').style.display = 'block' }
+    try {
+      const versao = encodeURIComponent(info.atualizado_em || '')
+      const resp = await fetch(`${SUPABASE_URL}/storage/v1/object/public/vistas/${info.arquivo}?v=${versao}`)
+      if (!resp.ok) throw new Error(String(resp.status))
+      $('progresso') && ($('progresso').textContent = 'Abrindo o 3D…')
+      await window.abrirObra(await resp.arrayBuffer(), { nome: info.nome, empresa: info.empresa })
+    } catch { aviso('Não foi possível abrir o 3D', 'O arquivo da obra não carregou. Peça a quem enviou para gerar as etiquetas (ou o link) de novo.') }
+  }
+  iniciar()
+</script>
+</body>
+</html>
